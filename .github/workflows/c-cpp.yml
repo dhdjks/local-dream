@@ -9,61 +9,118 @@ jobs:
   build:
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      # 官方第1步：clone --recursive，子模块包含构建依赖
+      - name: Checkout
+        uses: actions/checkout@v4
         with:
           submodules: recursive
 
-      - uses: actions/setup-java@v4
+      # 官方前置要求：JDK 11+
+      - name: Setup JDK
+        uses: actions/setup-java@v4
         with:
           distribution: temurin
           java-version: '17'
 
+      # 官方前置要求：Rust 固定 1.84.0，更新版本会导致构建失败
       - name: Setup Rust 1.84.0
         run: |
           rustup toolchain install 1.84.0 --profile minimal
           rustup default 1.84.0
           rustup target add aarch64-linux-android --toolchain 1.84.0
           rustc --version
+          cargo --version
 
-      - name: Download & unpack QNN SDK
+      # 官方前置要求：CMake + Ninja
+      - name: Install Ninja
         run: |
-          curl -L -o qnn.zip "https://apigwx-aws.qualcomm.com/qsc/public/v1/api/download/software/sdks/Qualcomm_AI_Runtime_Community/All/2.39.0.250926/v2.39.0.250926.zip"
-          unzip -q qnn.zip -d "$GITHUB_WORKSPACE/qnn"
-          ls "$GITHUB_WORKSPACE/qnn"
+          sudo apt-get update -y
+          sudo apt-get install -y ninja-build
+          which ninja
+          ninja --version
+          cmake --version
 
-      - name: Locate NDK
+      # 官方第2步：下载并解压 QNN SDK 2.39
+      - name: Download QNN SDK
         run: |
-          echo "NDK at: $ANDROID_NDK_HOME"
-          ls "$ANDROID_NDK_HOME"
+          curl -L -o qnn.zip "这里填你的QNN直链"
+          unzip -q qnn.zip -d "$GITHUB_WORKSPACE"
+          echo "--- 解压结果 ---"
+          ls -la "$GITHUB_WORKSPACE"
+          # 自动定位 qairt/<版本号> 目录
+          QNN_DIR=$(find "$GITHUB_WORKSPACE" -maxdepth 2 -type d -name "2.39.*" | head -1)
+          echo "QNN_DIR=$QNN_DIR"
+          echo "QNN_SDK_ROOT=$QNN_DIR" >> $GITHUB_ENV
+          ls "$QNN_DIR"
 
-      - name: Patch QNN_SDK_ROOT
+      # 官方第2步：下载并解压 Android NDK
+      - name: Setup Android NDK
         run: |
-          sed -i 's|set(QNN_SDK_ROOT .*|set(QNN_SDK_ROOT "$GITHUB_WORKSPACE/qnn")|' \
-            app/src/main/cpp/CMakeLists.txt
-          grep -n "QNN_SDK_ROOT" app/src/main/cpp/CMakeLists.txt
+          curl -L -o ndk.zip \
+            "https://dl.google.com/android/repository/android-ndk-r28c-linux.zip"
+          unzip -q ndk.zip -d "$GITHUB_WORKSPACE"
+          NDK_PATH="$GITHUB_WORKSPACE/android-ndk-r28c"
+          echo "NDK_PATH=$NDK_PATH" >> $GITHUB_ENV
+          echo "ANDROID_NDK_ROOT=$NDK_PATH" >> $GITHUB_ENV
+          echo "ANDROID_NDK_HOME=$NDK_PATH" >> $GITHUB_ENV
+          ls "$NDK_PATH/build/cmake/android.toolchain.cmake"
 
-      - name: Patch ANDROID_NDK_ROOT
+      # 官方第2步：改 CMakePresets.json 里硬编码的 NDK 路径
+      - name: Patch CMakePresets.json
         run: |
           python3 - <<'PY'
           import json, os
           p = "app/src/main/cpp/CMakePresets.json"
           d = json.load(open(p))
-          ndk = os.environ["ANDROID_NDK_HOME"]
+          ndk = os.environ["NDK_PATH"]
           for preset in d.get("configurePresets", []):
+              # 关键：覆盖 environment 块里写死的 /data/android-ndk-r28
+              env = preset.setdefault("environment", {})
+              env["ANDROID_NDK_ROOT"] = ndk
+              # 补上 ninja，避免 CMAKE_MAKE_PROGRAM 找不到
               c = preset.setdefault("cacheVariables", {})
-              c["ANDROID_NDK_ROOT"] = ndk
+              c["CMAKE_MAKE_PROGRAM"] = "ninja"
           json.dump(d, open(p, "w"), indent=2)
           PY
+          echo "--- 修改后的 preset ---"
           cat app/src/main/cpp/CMakePresets.json
 
+      # 官方第2步：改 CMakeLists.txt 的 QNN_SDK_ROOT
+      - name: Patch CMakeLists.txt
+        run: |
+          echo "--- 修改前 ---"
+          grep -n "QNN_SDK_ROOT" app/src/main/cpp/CMakeLists.txt || true
+          python3 - <<'PY'
+          import os, re
+          p = "app/src/main/cpp/CMakeLists.txt"
+          qnn = os.environ["QNN_SDK_ROOT"]
+          s = open(p).read()
+          new, n = re.subn(
+              r'set\s*\(\s*QNN_SDK_ROOT\s+[^)]*\)',
+              f'set(QNN_SDK_ROOT "{qnn}")',
+              s
+          )
+          if n == 0:
+              # 没匹配到就插到文件开头
+              new = f'set(QNN_SDK_ROOT "{qnn}")\n' + s
+          open(p, "w").write(new)
+          print(f"替换次数: {n}")
+          PY
+          echo "--- 修改后 ---"
+          grep -n "QNN_SDK_ROOT" app/src/main/cpp/CMakeLists.txt
+
+      # 官方第3步：Linux 下构建原生库
       - name: Build native libs
         working-directory: app/src/main/cpp
         run: |
+          echo "--- build.sh 内容 ---"
+          cat build.sh
           chmod +x build.sh
           ./build.sh
 
+      # 官方第4步：APK 输出到 app/build/outputs/apk/
       - name: Build APK
-        run: ./gradlew assembleDebug --no-daemon
+        run: ./gradlew assembleDebug --no-daemon --stacktrace
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
