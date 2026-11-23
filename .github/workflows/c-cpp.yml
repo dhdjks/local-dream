@@ -43,7 +43,7 @@ jobs:
       # 官方第2步：下载并解压 QNN SDK 2.39
       - name: Download QNN SDK
         run: |
-          curl -L -o qnn.zip "https://apigwx-aws.qualcomm.com/qsc/public/v1/api/download/software/sdks/Qualcomm_AI_Runtime_Community/All/2.39.0.250926/v2.39.0.250926.zip"
+          curl -L -o qnn.zip "https://apigwx-aws.qualcomm.com/qsc/public/v1/api/download/software/sdks/Qualcomm_AI_Runtime_Community/All/2.51.0.260929/v2.51.0.260929.zip"
           unzip -q qnn.zip -d "$GITHUB_WORKSPACE"
           echo "--- 解压结果 ---"
           ls -la "$GITHUB_WORKSPACE"
