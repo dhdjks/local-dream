@@ -1,0 +1,46 @@
+name: Test Signing
+
+on:
+  workflow_dispatch:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Setup JDK
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Restore keystore
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > app/keystore.jks
+          ls -la app/keystore.jks
+
+      - name: Verify store password
+        run: |
+          echo "===== 列出 keystore 内容 ====="
+          keytool -list -keystore app/keystore.jks \
+            -storepass "${{ secrets.KEYSTORE_PASSWORD }}"
+          echo "✅ 库密码正确"
+
+      - name: Verify key password
+        run: |
+          echo "alias = ${{ secrets.KEY_ALIAS }}"
+          keytool -keypasswd \
+            -keystore app/keystore.jks \
+            -alias "${{ secrets.KEY_ALIAS }}" \
+            -storepass "${{ secrets.KEYSTORE_PASSWORD }}" \
+            -keypass "${{ secrets.KEY_PASSWORD }}" \
+            -new "${{ secrets.KEY_PASSWORD }}"
+          echo "✅ 私钥密码正确"
+
+      - name: Print certificate fingerprint
+        run: |
+          keytool -list -v -keystore app/keystore.jks \
+            -alias "${{ secrets.KEY_ALIAS }}" \
+            -storepass "${{ secrets.KEYSTORE_PASSWORD }}" \
+            | grep -E "Alias|创建|有效期|SHA256|MD5"
