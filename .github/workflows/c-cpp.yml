@@ -1,0 +1,73 @@
+name: Build Local Dream APK
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [ master ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Setup Rust 1.84.0
+        run: |
+          rustup toolchain install 1.84.0 --profile minimal
+          rustup default 1.84.0
+          rustup target add aarch64-linux-android --toolchain 1.84.0
+          rustc --version
+
+      - name: Download & unpack QNN SDK
+        run: |
+          curl -L -o qnn.zip "https://apigwx-aws.qualcomm.com/qsc/public/v1/api/download/software/sdks/Qualcomm_AI_Runtime_Community/All/2.39.0.250926/v2.39.0.250926.zip"
+          unzip -q qnn.zip -d "$GITHUB_WORKSPACE/qnn"
+          ls "$GITHUB_WORKSPACE/qnn"
+
+      - name: Locate NDK
+        run: |
+          echo "NDK at: $ANDROID_NDK_HOME"
+          ls "$ANDROID_NDK_HOME"
+
+      - name: Patch QNN_SDK_ROOT
+        run: |
+          sed -i 's|set(QNN_SDK_ROOT .*|set(QNN_SDK_ROOT "$GITHUB_WORKSPACE/qnn")|' \
+            app/src/main/cpp/CMakeLists.txt
+          grep -n "QNN_SDK_ROOT" app/src/main/cpp/CMakeLists.txt
+
+      - name: Patch ANDROID_NDK_ROOT
+        run: |
+          python3 - <<'PY'
+          import json, os
+          p = "app/src/main/cpp/CMakePresets.json"
+          d = json.load(open(p))
+          ndk = os.environ["ANDROID_NDK_HOME"]
+          for preset in d.get("configurePresets", []):
+              c = preset.setdefault("cacheVariables", {})
+              c["ANDROID_NDK_ROOT"] = ndk
+          json.dump(d, open(p, "w"), indent=2)
+          PY
+          cat app/src/main/cpp/CMakePresets.json
+
+      - name: Build native libs
+        working-directory: app/src/main/cpp
+        run: |
+          chmod +x build.sh
+          ./build.sh
+
+      - name: Build APK
+        run: ./gradlew assembleDebug --no-daemon
+
+      - name: Upload APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: local-dream-debug
+          path: app/build/outputs/apk/**/*.apk
+          if-no-files-found: error
