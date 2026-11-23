@@ -117,14 +117,23 @@ jobs:
           cat build.sh
           chmod +x build.sh
           ./build.sh
+          
+      - name: Restore keystore
+        run: |
+          echo "${{ secrets.KEYSTORE_BASE64 }}" | base64 --decode > app/keystore.jks
+          ls -la app/keystore.jks
 
       # 官方第4步：APK 输出到 app/build/outputs/apk/
-      - name: Build APK
-        run: ./gradlew assembleDebug --no-daemon --stacktrace
+      - name: Build release APK
+        run: |
+          ./gradlew assembleRelease --no-daemon --stacktrace \
+            -PRELEASE_STORE_PASSWORD='${{ secrets.KEYSTORE_PASSWORD }}' \
+            -PRELEASE_KEY_ALIAS='${{ secrets.KEY_ALIAS }}' \
+            -PRELEASE_KEY_PASSWORD='${{ secrets.KEY_PASSWORD }}'
 
       - name: Upload APK
         uses: actions/upload-artifact@v4
         with:
-          name: local-dream-debug
-          path: app/build/outputs/apk/**/*.apk
+          name: local-dream-release
+          path: app/build/outputs/apk/release/**/*.apk
           if-no-files-found: error
