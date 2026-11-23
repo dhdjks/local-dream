@@ -48,7 +48,7 @@ jobs:
           echo "--- 解压结果 ---"
           ls -la "$GITHUB_WORKSPACE"
           # 自动定位 qairt/<版本号> 目录
-          QNN_DIR=$(find "$GITHUB_WORKSPACE" -maxdepth 2 -type d -name "2.39.*" | head -1)
+          QNN_DIR=$(find "$GITHUB_WORKSPACE" -maxdepth 2 -type d -name "2.51.*" | head -1)
           echo "QNN_DIR=$QNN_DIR"
           echo "QNN_SDK_ROOT=$QNN_DIR" >> $GITHUB_ENV
           ls "$QNN_DIR"
