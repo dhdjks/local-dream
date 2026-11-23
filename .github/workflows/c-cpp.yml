@@ -135,5 +135,6 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: local-dream-release
-          path: app/build/outputs/apk/release/**/*.apk
+          path: |
+            **/*.apk
           if-no-files-found: error
